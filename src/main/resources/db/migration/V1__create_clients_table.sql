@@ -1,0 +1,6 @@
+CREATE TABLE clients (
+    id UUID PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    cpf VARCHAR(11) NOT NULL,
+    email VARCHAR NOT NULL
+);
