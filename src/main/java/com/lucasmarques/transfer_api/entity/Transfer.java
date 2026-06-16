@@ -1,5 +1,6 @@
 package com.lucasmarques.transfer_api.entity;
 
+import com.lucasmarques.transfer_api.enums.StatusTransfer;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
