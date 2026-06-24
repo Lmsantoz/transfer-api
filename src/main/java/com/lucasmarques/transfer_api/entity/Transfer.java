@@ -4,6 +4,7 @@ import com.lucasmarques.transfer_api.enums.StatusTransfer;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -11,6 +12,7 @@ import java.util.UUID;
 
 @Entity
 @Data
+@RequiredArgsConstructor
 @Table(name = "transfer")
 public class Transfer {
 
