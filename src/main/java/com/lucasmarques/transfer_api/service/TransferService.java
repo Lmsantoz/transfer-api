@@ -2,6 +2,7 @@ package com.lucasmarques.transfer_api.service;
 
 import com.lucasmarques.transfer_api.entity.Account;
 import com.lucasmarques.transfer_api.entity.Transfer;
+import com.lucasmarques.transfer_api.enums.StatusTransfer;
 import com.lucasmarques.transfer_api.repository.AccountRepository;
 import com.lucasmarques.transfer_api.repository.TransferRepository;
 import jakarta.transaction.Transactional;
@@ -27,11 +28,11 @@ public class TransferService {
         return transferRepository.findAll(pageable);
     }
 
-    private Account findOriginById(UUID id) {
+    public Account findOriginById(UUID id) {
         return accountRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 
-    private Account findDestinationById(UUID id) {
+    public Account findDestinationById(UUID id) {
         return accountRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 
@@ -54,7 +55,7 @@ public class TransferService {
     }
 
     @Transactional
-    public void createTransfer(UUID originId, UUID destinationId, BigDecimal amount) {
+    public Transfer createTransfer(UUID originId, UUID destinationId, BigDecimal amount) {
 
         Account origin = findOriginById(originId);
         Account destination =  findDestinationById(destinationId);
@@ -64,6 +65,8 @@ public class TransferService {
         LocalDateTime date = LocalDateTime.now();
 
         Transfer transfer = new Transfer(origin, destination, amount, date);
+        transfer.setStatus(StatusTransfer.SUCCESS);
         transferRepository.save(transfer);
+        return transfer;
     }
 }
