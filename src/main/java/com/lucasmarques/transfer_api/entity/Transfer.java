@@ -36,9 +36,17 @@ public class Transfer {
 
     @NotNull
     @Column(nullable = false)
-    private LocalDateTime dateTransfer;
+    private LocalDateTime transferDate;
 
-    @Column
+    @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private StatusTransfer status;
+
+
+    public Transfer(Account origin, Account destination, BigDecimal amount, LocalDateTime date) {
+        this.originAccount = origin;
+        this.destinationAccount = destination;
+        this.amount = amount;
+        this.transferDate = date;
+    }
 }
