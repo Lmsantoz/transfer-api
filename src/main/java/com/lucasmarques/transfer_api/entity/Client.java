@@ -27,4 +27,12 @@ public class Client {
     @NotBlank
     @Column(nullable = false)
     private String email;
+
+    public Client(String name, String number, String mail) {
+        this.name = name;
+        this.cpf = number;
+        this.email = mail;
+    }
+
+    public Client() {}
 }
