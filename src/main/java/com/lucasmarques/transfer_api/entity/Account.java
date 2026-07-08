@@ -26,4 +26,13 @@ public class Account {
     @ManyToOne
     @JoinColumn(name = "client_id", referencedColumnName = "id")
     private Client client;
+
+    public Account(BigDecimal balance, String numberAccount, Client client) {
+        this.balance = balance;
+        this.numberAccount = numberAccount;
+        this.client = client;
+    }
+
+    public Account() {
+    }
 }
