@@ -10,8 +10,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.server.ResponseStatusException;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -68,7 +70,7 @@ public class TransferServiceTest {
     private TransferService transferService;
 
     @Test
-    void Transfer() {
+    void TransferSuccess() {
         assertThat(accountRepository.findById(account.getId())).isPresent();
         assertThat(accountRepository.findById(account2.getId())).isPresent();
 
@@ -76,5 +78,13 @@ public class TransferServiceTest {
 
         Assertions.assertEquals(0,accountRepository.findById(account.getId()).get().getBalance().compareTo(BigDecimal.valueOf(0.0)));
         Assertions.assertEquals(0, accountRepository.findById(account2.getId()).get().getBalance().compareTo(BigDecimal.valueOf(500.00)));
+    }
+
+    @Test
+    void TransferFail() {
+        assertThat(accountRepository.findById(account.getId())).isPresent();
+        assertThat(accountRepository.findById(account2.getId())).isPresent();
+
+        Assertions.assertThrows(ResponseStatusException.class, () -> transferService.createTransfer(account.getId(), account2.getId(), BigDecimal.valueOf(400.00)));
     }
 }
