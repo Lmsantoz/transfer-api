@@ -4,6 +4,9 @@ import com.lucasmarques.transfer_api.entity.Account;
 import com.lucasmarques.transfer_api.entity.Client;
 import com.lucasmarques.transfer_api.repository.AccountRepository;
 import com.lucasmarques.transfer_api.repository.ClientRepository;
+
+import com.lucasmarques.transfer_api.repository.TransferRepository;
+
 import com.lucasmarques.transfer_api.service.TransferService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +22,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,6 +59,11 @@ public class TransferServiceTest {
     private ClientRepository clientRepository;
 
 
+    @Autowired
+    private TransferRepository transferRepository;
+
+
+
     private Client client;
     private Account account;
     private Client client2;
@@ -56,6 +71,9 @@ public class TransferServiceTest {
 
     @BeforeEach
     void beforeEach() {
+
+        transferRepository.deleteAll();
+
         accountRepository.deleteAll();
         clientRepository.deleteAll();
 
@@ -86,5 +104,38 @@ public class TransferServiceTest {
         assertThat(accountRepository.findById(account2.getId())).isPresent();
 
         Assertions.assertThrows(ResponseStatusException.class, () -> transferService.createTransfer(account.getId(), account2.getId(), BigDecimal.valueOf(400.00)));
+    }
+
+
+    @Test
+    void TransferConcurrent() throws InterruptedException {
+        int threads = 10;
+        BigDecimal amount = BigDecimal.valueOf(50.0);
+
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch latch = new CountDownLatch(threads);
+        AtomicInteger successCount = new AtomicInteger();
+
+        for (int i = 0;i < threads; i++) {
+            executor.submit(()-> {
+                try {
+                    transferService.createTransfer(account.getId(), account2.getId(), amount);
+                    successCount.incrementAndGet();
+                } catch (Exception e){
+
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+        latch.await(30, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        BigDecimal originBalance = accountRepository.findById(account.getId()).get().getBalance();
+        BigDecimal destBalance = accountRepository.findById(account2.getId()).get().getBalance();
+
+        Assertions.assertEquals(4, successCount.get());
+        Assertions.assertEquals(0, originBalance.compareTo(BigDecimal.ZERO));
+        Assertions.assertEquals(0, destBalance.compareTo(BigDecimal.valueOf(500.00)));
     }
 }

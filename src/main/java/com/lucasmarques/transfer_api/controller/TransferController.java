@@ -4,6 +4,7 @@ import com.lucasmarques.transfer_api.dto.TransferRequest;
 import com.lucasmarques.transfer_api.entity.Account;
 import com.lucasmarques.transfer_api.entity.Transfer;
 import com.lucasmarques.transfer_api.service.TransferService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -23,7 +24,7 @@ public class TransferController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Transfer create(@RequestBody TransferRequest transferRequest) {
+    public Transfer create(@Valid @RequestBody TransferRequest transferRequest) {
         return transferService.createTransfer(transferRequest.originId(), transferRequest.destinationId(), transferRequest.amount());
     }
 

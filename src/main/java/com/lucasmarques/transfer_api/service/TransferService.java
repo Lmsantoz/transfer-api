@@ -28,14 +28,6 @@ public class TransferService {
         return transferRepository.findAll(pageable);
     }
 
-    public Account findOriginById(UUID id) {
-        return accountRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-    }
-
-    public Account findDestinationById(UUID id) {
-        return accountRepository.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-    }
-
     public void verifyBalance(Account originId, BigDecimal amount) {
         if (originId.getBalance().compareTo(amount) < 0 ) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "valor insuficiente");
@@ -57,14 +49,25 @@ public class TransferService {
     @Transactional
     public Transfer createTransfer(UUID originId, UUID destinationId, BigDecimal amount) {
 
-        Account origin = findOriginById(originId);
-        Account destination =  findDestinationById(destinationId);
+        if (originId.equals(destinationId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "origem e destino devem ser diferentes");
+        }
+
+        UUID firstId = originId.compareTo(destinationId) < 0  ? originId : destinationId;
+        UUID secondId = firstId.equals(originId) ? destinationId : originId ;
+
+        Account first = accountRepository.findByIdWithLock(firstId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        Account second = accountRepository.findByIdWithLock(secondId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        Account origin = first.getId().equals(originId) ? first : second;
+        Account destination = first.getId().equals(originId) ? second : origin;
 
         debit(origin, amount);
         credit(destination, amount);
-        LocalDateTime date = LocalDateTime.now();
 
-        Transfer transfer = new Transfer(origin, destination, amount, date);
+        Transfer transfer = new Transfer(origin, destination, amount, LocalDateTime.now());
         transfer.setStatus(StatusTransfer.SUCCESS);
         transferRepository.save(transfer);
         return transfer;
