@@ -4,7 +4,9 @@ import com.lucasmarques.transfer_api.entity.Account;
 import com.lucasmarques.transfer_api.entity.Client;
 import com.lucasmarques.transfer_api.repository.AccountRepository;
 import com.lucasmarques.transfer_api.repository.ClientRepository;
+
 import com.lucasmarques.transfer_api.repository.TransferRepository;
+
 import com.lucasmarques.transfer_api.service.TransferService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,11 +22,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,8 +58,10 @@ public class TransferServiceTest {
     @Autowired
     private ClientRepository clientRepository;
 
+
     @Autowired
     private TransferRepository transferRepository;
+
 
 
     private Client client;
@@ -65,7 +71,9 @@ public class TransferServiceTest {
 
     @BeforeEach
     void beforeEach() {
+
         transferRepository.deleteAll();
+
         accountRepository.deleteAll();
         clientRepository.deleteAll();
 
@@ -97,6 +105,7 @@ public class TransferServiceTest {
 
         Assertions.assertThrows(ResponseStatusException.class, () -> transferService.createTransfer(account.getId(), account2.getId(), BigDecimal.valueOf(400.00)));
     }
+
 
     @Test
     void TransferConcurrent() throws InterruptedException {
