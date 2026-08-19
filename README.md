@@ -1,201 +1,192 @@
 # Transfer API
 
-API REST para gerenciamento de clientes, contas bancárias e transferências entre contas, desenvolvida com Spring Boot 4 e Java 21.
+API REST de transferências bancárias construída com **Java 21** e **Spring Boot**, com foco em **consistência transacional** e **testes de integração com banco real** via Testcontainers.
 
-## Índice
+![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.x-brightgreen?logo=springboot&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql&logoColor=white)
+![Flyway](https://img.shields.io/badge/Flyway-Migrations-red?logo=flyway&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Testcontainers](https://img.shields.io/badge/Testcontainers-Integration%20Tests-9B489A)
 
-- [Stack tecnológica](#stack-tecnológica)
-- [Modelo de domínio](#modelo-de-domínio)
-- [Endpoints](#endpoints)
-- [Regras de negócio](#regras-de-negócio)
-- [Configuração e execução local](#configuração-e-execução-local)
-- [Testes](#testes)
-- [Estrutura do projeto](#estrutura-do-projeto)
-- [Pontos de atenção conhecidos](#pontos-de-atenção-conhecidos)
-- [Licença](#licença)
+---
 
-## Stack tecnológica
+## 📌 Sobre o projeto
 
-| Tecnologia | Versão |
+A Transfer API simula o núcleo de um sistema bancário de transferências entre contas. Uma transferência debita a conta de origem e credita a conta de destino dentro de uma **única transação** (`@Transactional`): se qualquer etapa falhar — como saldo insuficiente —, toda a operação é revertida, garantindo que nenhum dinheiro "desapareça" ou seja criado no processo.
+
+### Principais destaques técnicos
+
+- **Atomicidade com `@Transactional`** — débito, crédito e registro da transferência acontecem em uma única transação com rollback automático em caso de falha
+- **Validação de saldo** — transferências com saldo insuficiente são rejeitadas com `400 Bad Request` antes de qualquer alteração no banco
+- **Lock pessimista contra race condition** — as contas são travadas com `SELECT ... FOR UPDATE` em ordem determinística de UUID, impedindo que transferências simultâneas furem a verificação de saldo e evitando deadlock quando A→B e B→A ocorrem ao mesmo tempo
+- **Validação do payload** — Bean Validation rejeita valores nulos ou não positivos, e transferências entre a mesma conta são recusadas
+- **Testes de integração com Testcontainers** — os testes sobem um **PostgreSQL real em container**, cobrindo o fluxo de sucesso e o de falha (não são mocks: o comportamento transacional é validado contra o banco de verdade)
+- **Versionamento de schema com Flyway** — todas as tabelas são criadas por migrations SQL versionadas, reproduzíveis em qualquer ambiente
+- **Configuração via variáveis de ambiente** — nenhuma credencial commitada no repositório
+
+---
+
+## 🛠️ Tecnologias
+
+| Tecnologia | Uso |
 |---|---|
-| Java | 21 |
-| Spring Boot (starter-parent) | 4.0.6 |
-| Spring Data JPA | via BOM do Spring Boot |
-| Spring Web MVC | via BOM do Spring Boot |
-| Spring Validation | via BOM do Spring Boot |
-| Flyway (`flyway-database-postgresql`) | via BOM do Spring Boot |
-| PostgreSQL Driver | via BOM do Spring Boot |
-| Lombok | via BOM do Spring Boot |
-| Testcontainers (postgresql, junit-jupiter) | 1.21.0 |
-| Build tool | Maven (via Maven Wrapper `mvnw`/`mvnw.cmd`) |
-| Banco de dados | PostgreSQL 16 (alpine, via Docker) |
+| Java 21 | Linguagem |
+| Spring Boot 4.x (Web MVC, Data JPA, Validation) | Framework da aplicação |
+| PostgreSQL 16 | Banco de dados relacional |
+| Flyway | Migrations e versionamento de schema |
+| Docker Compose | Provisionamento do banco local |
+| Testcontainers + JUnit 5 | Testes de integração com banco real |
+| Lombok | Redução de boilerplate |
+| Maven (wrapper incluso) | Build e gerenciamento de dependências |
 
-## Modelo de domínio
+---
+
+## 🏗️ Arquitetura
+
+O projeto segue uma arquitetura em camadas:
 
 ```
-Client (1) ────< (N) Account (1) ────< (N) Transfer >──── (1) Account
+src/main/java/com/lucasmarques/transfer_api
+├── controller/     # Endpoints REST (Transfer, Account)
+├── service/        # Regras de negócio (débito, crédito, validação de saldo)
+├── repository/     # Acesso a dados via Spring Data JPA
+├── entity/         # Entidades JPA (Client, Account, Transfer)
+├── dto/            # Objetos de transferência de dados (TransferRequest)
+└── enums/          # StatusTransfer (SUCCESS, FAILED)
 ```
 
-### Client
-- `id` (UUID, gerado)
-- `name` (obrigatório)
-- `cpf` (obrigatório, sem constraint de unicidade no banco)
-- `email` (obrigatório, validado como e-mail)
+### Modelo de dados
 
-### Account
-- `id` (UUID, gerado)
-- `balance` (`BigDecimal`, obrigatório)
-- `numberAccount` (número da conta)
-- `client` (relação `@ManyToOne` com `Client`)
+```
+Client 1 ──── N Account 1 ──── N Transfer (origem)
+                       └────── N Transfer (destino)
+```
 
-### Transfer
-- `id` (UUID, gerado)
-- `originAccount` (`@ManyToOne` com `Account`)
-- `destinationAccount` (`@ManyToOne` com `Account`)
-- `amount` (`BigDecimal`, obrigatório)
-- `transferDate` (`LocalDateTime`, obrigatório)
-- `status` (enum `StatusTransfer`: `SUCCESS` ou `FAILED` — persistido como `STRING`)
+- **Client** — nome, CPF e e-mail
+- **Account** — saldo, número da conta e vínculo com o cliente
+- **Transfer** — conta de origem, conta de destino, valor, data e status
 
-O schema é criado e versionado via migrations Flyway em `src/main/resources/db/migration` (`V1__create_clients_table.sql`, `V2__create_accounts_table.sql`, `V3__create_transfer_table.sql`).
+Todas as chaves primárias são **UUID**, gerados pela aplicação.
 
-## Endpoints
+---
 
-### `GET /api/accounts/{id}`
+## 🔗 Endpoints
 
-Busca uma conta pelo seu identificador.
+### Criar transferência
 
-- **Path param:** `id` (UUID)
-- **Resposta:** `200 OK` com o objeto `Account` (incluindo o `Client` relacionado)
-- **Erros:** `404 Not Found` se a conta não existir
+```http
+POST /api/transfers
+Content-Type: application/json
+```
 
-### `POST /api/transfers`
-
-Cria uma transferência entre duas contas.
-
-- **Request body:**
 ```json
 {
-  "originId": "uuid-da-conta-origem",
-  "destinationId": "uuid-da-conta-destino",
-  "amount": 100.00
+  "originId": "550e8400-e29b-41d4-a716-446655440000",
+  "destinationId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  "amount": 150.00
 }
 ```
-- **Resposta:** `201 Created` com o objeto `Transfer` criado (incluindo as contas de origem e destino)
-- **Erros:**
-  - `404 Not Found` — conta de origem ou destino inexistente
-  - `400 Bad Request` (mensagem `"valor insuficiente"`) — saldo da conta de origem menor que o valor da transferência
 
-> O DTO `TransferRequest` não possui anotações de validação (Bean Validation) e o controller não usa `@Valid`, portanto não há validação formal de campos obrigatórios ou de valores negativos/zero em `amount`.
+| Resposta | Situação |
+|---|---|
+| `201 Created` | Transferência realizada — retorna o objeto `Transfer` com status `SUCCESS` |
+| `400 Bad Request` | Saldo insuficiente na conta de origem |
+| `404 Not Found` | Conta de origem ou destino inexistente |
 
-## Regras de negócio
+### Consultar conta
 
-Implementadas em `TransferService`:
+```http
+GET /api/accounts/{id}
+```
 
-1. As contas de origem e destino precisam existir, senão a API responde `404 Not Found`.
-2. O saldo da conta de origem é verificado antes do débito: se `balance < amount`, a operação é abortada com `400 Bad Request` e nenhuma alteração é persistida.
-3. A transferência é executada dentro de uma transação (`@Transactional`): débito na origem, crédito no destino e criação do registro `Transfer` com status `SUCCESS` e data/hora atual.
-4. Não há validação impedindo transferência de uma conta para ela mesma.
-5. O status `FAILED` existe no enum `StatusTransfer`, mas não é utilizado atualmente — falhas resultam em exceção antes de qualquer persistência, e não em um registro de transferência com esse status.
-6. O tratamento de erros é feito diretamente nos services via `ResponseStatusException` (não há classes de exceção customizadas nem `@ControllerAdvice`).
+| Resposta | Situação |
+|---|---|
+| `200 OK` | Retorna a conta com saldo atual |
+| `404 Not Found` | Conta inexistente |
 
-## Configuração e execução local
+---
+
+## 🚀 Como executar
 
 ### Pré-requisitos
 
-- JDK 21
+- Java 21+
 - Docker e Docker Compose
+- (Opcional) Maven — o projeto inclui o Maven Wrapper (`./mvnw`)
 
-### 1. Subir o banco de dados
+### 1. Clone o repositório
+
+```bash
+git clone https://github.com/Lmsantoz/transfer-api.git
+cd transfer-api
+```
+
+### 2. Configure as variáveis de ambiente
+
+Crie um arquivo `.env` na raiz do projeto (ou exporte as variáveis no shell):
+
+```env
+POSTGRES_USERNAME=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=transfer_db
+POSTGRES_URL=jdbc:postgresql://localhost:5433/transfer_db
+```
+
+> O banco expõe a porta **5433** no host para evitar conflito com instâncias locais do PostgreSQL na 5432.
+
+### 3. Suba o banco de dados
 
 ```bash
 docker compose up -d
 ```
 
-Isso sobe um container PostgreSQL 16 (`transfer_db`) na porta `5433` (host) → `5432` (container), com um volume nomeado (`postgres_data`) para persistência.
-
-> **Atenção:** o `docker-compose.yml` expõe o banco na porta `5433`, mas o exemplo de `POSTGRES_URL` abaixo usa a porta padrão `5432`. Ajuste a porta na sua URL JDBC conforme a que o container realmente expõe na sua máquina (`5433`, a menos que você altere o mapeamento).
-
-### 2. Variáveis de ambiente
-
-Crie um arquivo `.env` na raiz do projeto com:
-
-```env
-POSTGRES_URL=jdbc:postgresql://localhost:5433/transfer_api
-POSTGRES_USERNAME=postgres
-POSTGRES_PASSWORD=<sua-senha>
-POSTGRES_DB=transfer_api
-```
-
-Essas variáveis são consumidas tanto pelo `docker-compose.yml` (usuário/senha/nome do banco do container) quanto pelo `application.properties` (URL/usuário/senha do datasource da aplicação).
-
-### 3. Rodar a aplicação
+### 4. Execute a aplicação
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-(No Windows, use `mvnw.cmd spring-boot:run`.)
+As migrations do Flyway rodam automaticamente na inicialização, criando as tabelas `clients`, `accounts` e `transfer`.
 
-A aplicação sobe na porta padrão do Spring Boot, **8080** (não há `server.port` customizado). As migrations Flyway são aplicadas automaticamente na inicialização.
+A API estará disponível em `http://localhost:8080`.
 
-## Testes
+---
 
-Localizados em `src/test/java`. Atualmente há um único arquivo de teste, `TransferServiceTest`, que é um **teste de integração** (usa `@SpringBootTest` + Testcontainers, subindo um container PostgreSQL efêmero em vez de mocks). Cenários cobertos:
+## ✅ Testes
 
-- Verificação de que o container de banco sobe corretamente.
-- Transferência bem-sucedida entre duas contas, validando os novos saldos de origem e destino.
-- Transferência com saldo insuficiente, validando que uma `ResponseStatusException` é lançada.
-
-Para rodar os testes:
+Os testes de integração usam **Testcontainers**: um container PostgreSQL é criado automaticamente durante a execução, sem necessidade de configurar banco manualmente — basta ter o Docker rodando.
 
 ```bash
 ./mvnw test
 ```
 
-> Requer Docker disponível localmente, pois o Testcontainers sobe um container PostgreSQL real durante a execução dos testes.
+Cenários cobertos:
 
-## Estrutura do projeto
+- **Transferência com sucesso** — valida o débito na origem e o crédito no destino consultando os saldos reais no banco
+- **Transferência com saldo insuficiente** — valida que a operação é rejeitada e nenhum saldo é alterado
+- **Transferências concorrentes** — 10 threads disparam transferências simultâneas contra a mesma conta; valida que o lock pessimista impede saldo negativo e que apenas as transferências cobertas pelo saldo são efetivadas
+- **Conectividade** — valida a subida do container PostgreSQL
 
-```
-src/main/java/com/lucasmarques/transfer_api/
-├── TransferApiApplication.java
-├── controller/
-│   ├── AccountController.java
-│   └── TransferController.java
-├── dto/
-│   └── TransferRequest.java
-├── entity/
-│   ├── Account.java
-│   ├── Client.java
-│   └── Transfer.java
-├── enums/
-│   └── StatusTransfer.java
-├── repository/
-│   ├── AccountRepository.java
-│   ├── ClientRepository.java
-│   └── TransferRepository.java
-└── service/
-    ├── AccountService.java
-    └── TransferService.java
+---
 
-src/main/resources/
-├── application.properties
-└── db/migration/
-    ├── V1__create_clients_table.sql
-    ├── V2__create_accounts_table.sql
-    └── V3__create_transfer_table.sql
+## 🗺️ Próximos passos
 
-src/test/java/com/lucasmarques/transfer_api/
-└── TransferServiceTest.java
-```
+- [ ] Tratamento de erros centralizado com `@RestControllerAdvice` e payload de erro padronizado
+- [ ] Endpoint de listagem de transferências com paginação
+- [ ] Documentação interativa com Swagger / OpenAPI
+- [ ] DTOs de resposta para desacoplar as entidades JPA da API pública
 
-## Pontos de atenção conhecidos
+---
 
-- O `.env` está listado no `.gitignore`, mas já foi commitado ao repositório em algum momento — revise o histórico e rotacione credenciais se necessário.
-- `TransferService.findAll(Pageable)` existe mas não é exposto por nenhum endpoint de listagem.
-- Não há constraint de unicidade para `cpf` em `clients` no schema do banco.
-- `accounts.balance` e `transfer.amount` usam `DECIMAL(8,2)`, limitando valores a no máximo ~999999.99.
+## 📄 Licença
 
-## Licença
+Este projeto está sob a licença descrita no arquivo [LICENSE](LICENSE).
 
-Este projeto está licenciado sob a licença MIT — veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+---
+
+## 👤 Autor
+
+**Lucas Marques**
+
+[![GitHub](https://img.shields.io/badge/GitHub-Lmsantoz-181717?logo=github)](https://github.com/Lmsantoz)
